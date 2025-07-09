@@ -1,0 +1,28 @@
+[project]
+name = "target-region"
+version = "1.0.0"
+description = "Target Region detection and de-compression logic"
+readme = "README.md"
+requires-python = ">=3.13.2"
+dependencies = [
+    "aws-embedded-metrics>=3.3.0",
+    "boto3>=1.37.18",
+    "psutil>=7.0.0",
+    "python-json-logger>=3.3.0",
+    "pyzstd>=0.16.2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.11.1",
+    "pytest-cov>=4.1.0",
+    "moto>=4.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+pythonpath = ["."]

@@ -1,0 +1,28 @@
+{
+    "stack_name": "s3-compressor",
+    "enabled_regions": [
+        {
+            "region": "us-west-2",
+            "vpc_cidr": "10.0.0.0/16",
+            "source_target": [ "source", "target" ],
+            "availability_zones": 3
+        },
+        {
+            "region": "us-east-1",
+            "vpc_cidr": "10.1.0.0/16",
+            "source_target": [ "source", "target" ],
+            "availability_zones": 3
+        },
+        {
+            "region": "eu-central-1",
+            "vpc_cidr": "10.2.0.0/16",
+            "source_target": [ "target" ],
+            "availability_zones": 3
+        }
+    ],
+    "tags": {
+        "Environment": "dev",
+        "Project": "s3-compressor"
+    },
+    "notification_emails": [ "example@example.com" ]
+}

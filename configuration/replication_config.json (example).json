@@ -1,0 +1,60 @@
+{
+    "replication_configuration": [
+        {
+            "source": {
+                "region": "us-west-2",
+                "bucket": "example-source-bucket",
+                "kms_key_arn": "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+                "prefix_filter": "large-files/",
+                "suffix_filter": ".jpg",
+                "scaling_limit": 50,
+                "cpu": 4096,
+                "memory": 8192,
+                "ephemeral_storage": 100,
+                "scaling_target_backlog_per_task": 20,
+                "visibility_timeout": 1800
+            },
+            "destinations": [
+                {
+                    "region": "us-east-1",
+                    "bucket": "example-target-bucket-east",
+                    "storage_class": "INTELLIGENT_TIERING",
+                    "kms_key_arn": "arn:aws:kms:us-east-1:111122223333:key/abcd1234-ab12-cd34-ef56-abcdef123456"
+                },
+                {
+                    "region": "eu-central-1",
+                    "bucket": "example-target-bucket-eu",
+                    "storage_class": "GLACIER_IR",
+                    "kms_key_arn": "arn:aws:kms:eu-central-1:111122223333:key/efgh5678-ef56-gh78-ij90-efghij456789"
+                }
+            ]
+        },
+        {
+            "source": {
+                "region": "us-west-2",
+                "bucket": "example-secondary-bucket",
+                "kms_key_arn": "arn:aws:kms:us-west-2:111122223333:key/2345bcde-23bc-45de-67fg-2345678901bc",
+                "prefix_filter": "documents/",
+                "scaling_limit": 30,
+                "cpu": 2048,
+                "memory": 4096,
+                "ephemeral_storage": 50,
+                "scaling_target_backlog_per_task": 60,
+                "visibility_timeout": 900
+            },
+            "destinations": [
+                {
+                    "region": "us-east-1",
+                    "bucket": "example-archive-bucket",
+                    "storage_class": "STANDARD_IA"
+                },
+                {
+                    "region": "eu-central-1",
+                    "bucket": "example-compliance-bucket",
+                    "storage_class": "INTELLIGENT_TIERING",
+                    "kms_key_arn": "arn:aws:kms:eu-central-1:111122223333:key/ijkl9012-ij90-kl12-mn34-ijklmn789012"
+                }
+            ]
+        }
+    ]
+}

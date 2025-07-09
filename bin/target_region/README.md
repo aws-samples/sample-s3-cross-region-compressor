@@ -1,0 +1,5 @@
+This containerized application will be running as an ECS Service with AutoScaling. We run only one ECS Service for the target region, there is a single SQS queue created by the CDK deployment process, which gets messages based on the target staging S3 bucket. Every time an object is process in the source region, it gets replicated to this target bucket by S3 replication.
+
+This target_region container will be getting those messages one by one, decompress the file and store all the objects in the target bucket and target prefix, according to all the information on the manifest file. Additionally to the tags created in the source, it will add an additional tag for the original creation time and the etag.
+
+After finishing, it will delete the compress object from the Staging S3 bucket, and work on the next sqs message.

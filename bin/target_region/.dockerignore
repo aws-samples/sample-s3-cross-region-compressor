@@ -1,0 +1,9 @@
+# .dockerignore
+
+# Test directories
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode
+pytest.ini
