@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import unquote_plus
 
 import boto3
 from botocore.config import Config
@@ -167,7 +168,9 @@ def extract_s3_event_info(message: Dict) -> List[Dict]:
 				key = s3_info.get('object', {}).get('key')
 
 				if bucket and key:
-					s3_objects.append({'bucket': bucket, 'key': key})
+					# URL decode the key to handle spaces and special characters
+					decoded_key = unquote_plus(key)
+					s3_objects.append({'bucket': bucket, 'key': decoded_key})
 
 		return s3_objects
 	except (json.JSONDecodeError, KeyError) as e:
