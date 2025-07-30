@@ -95,20 +95,17 @@ def process_s3_object(s3_object: Dict, temp_dir: str) -> Tuple[bool, str, Dict]:
 	try:
 		bucket = s3_object['bucket']
 		key = s3_object['key']
-
-		logger.debug(f'Processing S3 object from {bucket}/{key}')
-
 		# Generate a unique filename
 		filename = f'{uuid.uuid4().hex}_{os.path.basename(key)}'
 		local_path = os.path.join(temp_dir, filename)
 
 		# Download the object
-		logger.debug(f'Downloading object to {local_path}')
+
 		if not get_s3_object(bucket, key, local_path):
 			logger.error(f'Download failed for {bucket}/{key}')
 			return False, '', {}
 
-		logger.debug(f'Successfully downloaded {bucket}/{key}')
+
 		return True, local_path, {'bucket': bucket, 'key': key}
 	except Exception as e:
 		logger.exception(f'Exception in process_s3_object: {e}')
@@ -589,8 +586,6 @@ def process_message_batch(queue_url: str) -> int:
 	    Number of successfully processed messages
 	"""
 	try:
-		logger.info('Starting to process message batch')
-
 		# Retrieve messages from SQS
 		messages = get_sqs_messages(
 			queue_url=queue_url,
@@ -600,7 +595,7 @@ def process_message_batch(queue_url: str) -> int:
 		if not messages:
 			return 0
 
-		logger.info(f'Retrieved {len(messages)} messages from SQS')
+
 
 		# Process test events first
 		test_event_receipt_handles = []
@@ -615,9 +610,9 @@ def process_message_batch(queue_url: str) -> int:
 
 		# Delete test events immediately
 		if test_event_receipt_handles:
-			logger.debug(f'Deleting {len(test_event_receipt_handles)} S3 test event messages')
+	
 			delete_sqs_messages_batch(queue_url, test_event_receipt_handles)
-			logger.debug(f'Successfully deleted {len(test_event_receipt_handles)} test event messages')
+
 
 		# If all messages were test events, return now
 		if not regular_messages:
@@ -626,11 +621,11 @@ def process_message_batch(queue_url: str) -> int:
 
 		# Continue processing with regular messages only
 		messages = regular_messages
-		logger.info(f'Processing {len(messages)} non-test event messages')
+
 
 		# Create temporary directory
 		temp_dir = create_temp_directory()
-		logger.debug(f'Created temporary directory: {temp_dir}')
+
 
 		try:
 			# Process each message
@@ -640,10 +635,10 @@ def process_message_batch(queue_url: str) -> int:
 			for message in messages:
 				receipt_handles.append(message['ReceiptHandle'])
 				extracted_objects = extract_s3_event_info(message)
-				logger.debug(f'Extracted {len(extracted_objects)} S3 objects from message')
+
 				s3_objects.extend(extracted_objects)
 
-			logger.info(f'Total S3 objects to process: {len(s3_objects)}')
+
 
 			if not s3_objects:
 				logger.warning('No S3 objects found in messages')
@@ -662,7 +657,7 @@ def process_message_batch(queue_url: str) -> int:
 					logger.error(f'Failed to download object: {s3_object}')
 					continue
 
-				logger.debug(f'Decompressing archive: {local_path}')
+
 				# Decompress and extract the archive
 				success, extract_dir, compressed_size, decompressed_size = decompress_and_extract(local_path, temp_dir)
 				if not success:
@@ -675,7 +670,7 @@ def process_message_batch(queue_url: str) -> int:
 					logger.error(f'TAR file not found: {tar_path}')
 					continue
 
-				logger.debug(f'Archive ready for streaming extraction at: {extract_dir}')
+
 
 				# Read the manifest file - with our new approach, this should already be extracted
 				manifest_path = os.path.join(extract_dir, 'manifest.json')
@@ -683,7 +678,7 @@ def process_message_batch(queue_url: str) -> int:
 					logger.error(f'Manifest file not found: {manifest_path}')
 					continue
 
-				logger.debug(f'Reading manifest file: {manifest_path}')
+
 				manifest = read_manifest_from_file(manifest_path)
 				if not manifest:
 					logger.error('Failed to read manifest file')
@@ -767,7 +762,7 @@ def process_message_batch(queue_url: str) -> int:
 				# Get list of objects from TAR file (without extracting them yet)
 				tar_members = get_tar_members(tar_path)
 				object_members = [m for m in tar_members if m != 'manifest.json']
-				logger.debug(f'Found {len(object_members)} object files in TAR archive')
+
 
 				# Update manifest to only include normal (non-backup) targets for decompression
 				if normal_targets:
@@ -775,13 +770,13 @@ def process_message_batch(queue_url: str) -> int:
 					logger.info(f'Processing decompression for {len(normal_targets)} normal destinations')
 
 				# Get mapping of object paths from manifest (but without the actual extracted files)
-				logger.debug('Getting object information from manifest')
+
 				object_infos = get_object_paths_from_manifest(manifest, extract_dir)
 				if not object_infos:
 					logger.error('No valid objects found in manifest')
 					continue
 
-				logger.info(f'Found {len(object_infos)} objects in manifest')
+
 
 				# Create a dictionary mapping relative keys to their info for quick lookup
 				object_map = {}
@@ -792,7 +787,7 @@ def process_message_batch(queue_url: str) -> int:
 						object_map[relative_key] = obj_info
 
 				# Process each object one at a time with streaming extraction
-				logger.info(f'Starting streaming extraction and upload of {len(object_members)} objects')
+
 				upload_results = []
 
 				try:
@@ -815,7 +810,7 @@ def process_message_batch(queue_url: str) -> int:
 							)
 							continue
 
-						logger.debug(f'Streaming extraction of {member_name}')
+
 
 						# Extract just this one file from the TAR
 						extraction_success = stream_extract_file(tar_path, member_name, extract_dir)
@@ -832,16 +827,16 @@ def process_message_batch(queue_url: str) -> int:
 						object_info['local_path'] = extracted_path
 
 						# Upload this object
-						logger.debug(f'Uploading extracted object: {object_info["object_name"]}')
+
 						upload_success = upload_object_to_targets(object_info)
 						upload_results.append(upload_success)
-						logger.debug(f'Upload result for {object_info["object_name"]}: {upload_success}')
+
 
 						# Delete the extracted file to free up space immediately
 						try:
 							if os.path.exists(extracted_path):
 								os.remove(extracted_path)
-								logger.debug(f'Removed extracted file after upload: {extracted_path}')
+
 						except Exception as e:
 							logger.error(f'Error removing extracted file {extracted_path}: {e}')
 
@@ -852,7 +847,7 @@ def process_message_batch(queue_url: str) -> int:
 				try:
 					if os.path.exists(tar_path):
 						os.remove(tar_path)
-						logger.debug(f'Removed TAR file after processing: {tar_path}')
+
 				except Exception as e:
 					logger.error(f'Error removing TAR file {tar_path}: {e}')
 
@@ -871,7 +866,7 @@ def process_message_batch(queue_url: str) -> int:
 						first_target = first_object.get('targets', [{}])[0]
 						target_bucket = first_target.get('bucket', 'unknown')
 
-						logger.debug(f'Reporting metrics to bucket: {target_bucket}')
+
 						report_decompression_metrics(target_bucket, compressed_size, decompressed_size)
 					except Exception as e:
 						logger.exception(f'Error reporting metrics: {e}')
@@ -891,11 +886,11 @@ def process_message_batch(queue_url: str) -> int:
 				else:
 					logger.warning(f'Some objects failed to upload: {failures} failures out of {len(upload_results)}')
 
-			logger.info(f'Finished processing all S3 objects, deleting {len(receipt_handles)} SQS messages')
+
 			# Delete processed messages
 			try:
 				delete_sqs_messages_batch(queue_url, receipt_handles)
-				logger.debug('Successfully deleted SQS messages')
+
 			except Exception as e:
 				logger.exception(f'Error deleting SQS messages: {e}')
 
@@ -903,9 +898,9 @@ def process_message_batch(queue_url: str) -> int:
 
 		finally:
 			# Clean up temporary directory
-			logger.debug(f'Cleaning up temporary directory: {temp_dir}')
+
 			cleanup_temp_directory(temp_dir)
-			logger.debug('Temporary directory cleaned')
+
 
 	except Exception:
 		logger.exception(f'Unhandled exception in process_message_batch: {traceback.format_exc()}')
