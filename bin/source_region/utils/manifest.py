@@ -101,7 +101,6 @@ def create_object_manifest(objects_metadata: List[Dict], targets: List[Dict], ou
 
 	Args:
 	    objects_metadata: List of object metadata dictionaries
-	    targets: List of target dictionaries
 	    output_path: Path to output file
 
 	Returns:
@@ -111,7 +110,7 @@ def create_object_manifest(objects_metadata: List[Dict], targets: List[Dict], ou
 		# Create manifest structure
 		manifest = create_manifest_structure()
 
-		# Set targets at the top level
+		# Set targets at the top level (targets now contain backup flags)
 		manifest['targets'] = targets
 
 		# Add each object

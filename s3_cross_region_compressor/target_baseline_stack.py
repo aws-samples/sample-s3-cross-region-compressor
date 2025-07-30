@@ -36,6 +36,19 @@ from s3_cross_region_compressor.utils.iam_utils import (
 	add_target_s3_write_permissions,
 	add_cloudwatch_metrics_policy,
 )
+from s3_cross_region_compressor.resources.catalog_bucket import create_catalog_bucket
+from s3_cross_region_compressor.resources.glue_catalog import (
+	create_glue_database,
+	create_glue_crawler_role,
+	create_glue_crawler,
+	create_crawler_schedule
+)
+from s3_cross_region_compressor.resources.athena_workgroup import (
+	create_athena_query_results_bucket,
+	create_athena_workgroup,
+	create_athena_user_role
+)
+
 from cdk_nag import NagSuppressions
 
 class TargetStackProps:
@@ -155,6 +168,88 @@ class TargetStack(NestedStack):
 			s3_id='inbound',
 			stack_name=props.stack_name,
 		)
+		
+		# Create catalog bucket only if this region has backup destinations
+		has_backup_destinations = any(
+			dest.get('backup', False) for config in props.replication_config 
+			for dest in config['destinations'] if dest['region'] == self.region
+		)
+		
+		self.catalog_bucket = None
+		self.glue_database = None
+		self.glue_crawler = None
+		self.athena_workgroup = None
+		
+		if has_backup_destinations:
+			self.catalog_bucket = create_catalog_bucket(
+				scope=self,
+				kms_key=self.inbound_kms_key,
+				stack_name=props.stack_name
+			)
+			
+			# Create Glue database and crawler
+			database_name = f'{props.stack_name}_catalog_db'
+			self.glue_database = create_glue_database(
+				scope=self,
+				database_name=database_name
+			)
+			
+			crawler_role = create_glue_crawler_role(scope=self)
+			self.glue_crawler = create_glue_crawler(
+				scope=self,
+				database=self.glue_database,
+				catalog_bucket=self.catalog_bucket,
+				crawler_role=crawler_role,
+				stack_name=props.stack_name
+			)
+			
+			# Schedule crawler to run daily
+			create_crawler_schedule(scope=self, crawler=self.glue_crawler)
+			
+			# Create Athena workgroup and query results bucket
+			query_results_bucket = create_athena_query_results_bucket(
+				scope=self,
+				kms_key=self.inbound_kms_key,
+				stack_name=props.stack_name
+			)
+			
+			self.athena_workgroup = create_athena_workgroup(
+				scope=self,
+				query_results_bucket=query_results_bucket,
+				stack_name=props.stack_name
+			)
+			
+			# Create Athena user role
+			self.athena_user_role = create_athena_user_role(
+				scope=self,
+				catalog_bucket=self.catalog_bucket,
+				query_results_bucket=query_results_bucket,
+				database_name=database_name
+			)
+			
+			# Add suppressions for Athena query results bucket
+			NagSuppressions.add_resource_suppressions(
+				query_results_bucket,
+				[
+					{
+						"id": "AwsSolutions-S1",
+						"reason": "Query results bucket is temporary storage, access logs not required"
+					}
+				]
+			)
+			
+			# Add suppressions for Glue crawler
+			NagSuppressions.add_resource_suppressions(
+				self.glue_crawler,
+				[
+					{
+						"id": "AwsSolutions-GL1",
+						"reason": "CloudWatch log encryption causes circular dependencies in CDK. Catalog data is encrypted in S3 with KMS, and crawler logs contain only operational metadata."
+					}
+				]
+			)
+		
+
 		self.ecr_repository = create_ecr_repository(scope=self, ecr_id='inbound', kms_key=props.repository_kms_key)
 		uploaded_s3_object = s3_upload_assets(
 			scope=self,
@@ -214,8 +309,11 @@ class TargetStack(NestedStack):
 
 		# Permissions
 		self.inbound_s3_bucket.grant_read_write(ecs_task_role)
+		if self.catalog_bucket:
+			self.catalog_bucket.grant_read_write(ecs_task_role)
 		self.inbound_kms_key.grant_encrypt_decrypt(ecs_task_role)
 		sqs_queue.grant_consume_messages(ecs_task_role)
+
 		add_cloudwatch_metrics_policy(ecs_task_role)
 
 		for config in props.replication_config:
@@ -227,6 +325,18 @@ class TargetStack(NestedStack):
 						kms_key_arn=destination.get('kms_key_arn', ''),
 					)
 
+		# Extract monitored prefix from replication config for target region
+		monitored_prefix = None
+		for config in props.replication_config:
+			for destination in config['destinations']:
+				if destination['region'] == self.region:
+					# Get the prefix_filter from the source config that targets this region
+					source_config = config.get('source', {})
+					monitored_prefix = source_config.get('prefix_filter', '')
+					break
+			if monitored_prefix is not None:
+				break
+		
 		ecs_task_definition = create_task_definition(
 			scope=self,
 			task_d_id='target-task-definition',
@@ -236,6 +346,9 @@ class TargetStack(NestedStack):
 			s3_bucket=self.inbound_s3_bucket,
 			sqs_queue=sqs_queue,
 			ecr_repository=self.ecr_repository,
+			monitored_prefix=monitored_prefix,
+			backup_mode=has_backup_destinations,
+			catalog_bucket_name=self.catalog_bucket.bucket_name if self.catalog_bucket else '',
 		)
 
 		# ECS Service with autoscaling based on SQS queue depth
@@ -333,3 +446,26 @@ class TargetStack(NestedStack):
                 }
             ]
         )
+        
+		# Add suppressions for catalog bucket if it exists
+		if self.catalog_bucket:
+			NagSuppressions.add_resource_suppressions(
+				self.catalog_bucket,
+				[
+					{
+						"id": "AwsSolutions-S1",
+						"reason": "Catalog bucket is for metadata storage only, access logs not required"
+					}
+				]
+			)
+			
+			# Add suppressions for Athena user role
+			NagSuppressions.add_resource_suppressions(
+				self.athena_user_role,
+				[
+					{
+						"id": "AwsSolutions-IAM5",
+						"reason": "Athena requires wildcards for Glue catalog and query operations"
+					}
+				]
+			)

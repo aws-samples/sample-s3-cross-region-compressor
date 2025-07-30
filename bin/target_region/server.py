@@ -46,6 +46,7 @@ from utils.manifest import (
 	prepare_object_tags,
 )
 from utils.metrics import report_decompression_metrics, track_processing_time
+import boto3
 
 # Configure logging
 logger = logging.getLogger()
@@ -115,6 +116,337 @@ def process_s3_object(s3_object: Dict, temp_dir: str) -> Tuple[bool, str, Dict]:
 
 
 @track_processing_time
+def upload_compressed_backup(compressed_file_path: str, manifest: Dict) -> bool:
+	"""
+	Upload compressed backup file directly to target buckets without decompression.
+
+	Args:
+	    compressed_file_path: Path to the compressed backup file
+	    manifest: Manifest containing target information
+
+	Returns:
+	    True if successful, False otherwise
+	"""
+	try:
+		targets = manifest.get('targets', [])
+		if not targets:
+			logger.error('No targets found in manifest for backup upload')
+			return False
+
+		current_region = get_current_region()
+		current_region_targets = [t for t in targets if t.get('region') == current_region]
+
+		if not current_region_targets:
+			logger.debug(f'No targets in current region ({current_region}) for backup, skipping')
+			return True
+
+		# Legacy function - redirect to direct upload
+		return upload_compressed_backup_direct(compressed_file_path, manifest, '')
+	except Exception as e:
+		logger.exception(f'Exception in upload_compressed_backup: {e}')
+		return False
+
+def upload_compressed_backup_direct(local_path: str, manifest: dict, subfolder: str) -> bool:
+	"""
+	Upload compressed backup directly without decompress/recompress (for same-folder files).
+	"""
+	try:
+		import uuid
+		from utils.aws_utils import upload_to_s3
+		
+		# Generate backup filename and determine placement
+		backup_filename = f'{uuid.uuid4().hex}.tar.zst'
+		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
+		
+		if monitored_prefix and subfolder:
+			target_key = f'{monitored_prefix}/{subfolder}/{backup_filename}'
+		elif monitored_prefix:
+			target_key = f'{monitored_prefix}/{backup_filename}'
+		elif subfolder:
+			target_key = f'{subfolder}/{backup_filename}'
+		else:
+			target_key = backup_filename
+		
+		# Upload to each backup target
+		success = True
+		for target in manifest.get('targets', []):
+			target_bucket = target.get('bucket')
+			if not target_bucket:
+				logger.warning('Target missing bucket name for backup upload')
+				success = False
+				continue
+			
+			logger.info(f'Uploading backup directly to {target_bucket}/{target_key}')
+			if not upload_to_s3(local_path, target_bucket, target_key):
+				logger.error(f'Failed to upload backup to {target_bucket}/{target_key}')
+				success = False
+			else:
+				logger.info(f'Successfully uploaded backup to {target_bucket}/{target_key}')
+		
+		# Track manifest contents for backup file
+		track_backup_manifest(backup_filename, manifest, manifest.get('targets', []))
+		
+		return success
+		
+	except Exception as e:
+		logger.exception(f'Exception in upload_compressed_backup_direct: {e}')
+		return False
+
+
+def create_folder_backup(tar_path: str, extract_dir: str, folder_objects: list, backup_targets: list, subfolder: str) -> bool:
+	"""
+	Create a backup archive for files from a specific folder.
+	
+	Args:
+	    tar_path: Path to the source TAR file
+	    extract_dir: Directory where files are extracted
+	    folder_objects: List of objects for this folder
+	    backup_targets: List of backup target configurations
+	    subfolder: The subfolder these objects belong to
+	    
+	Returns:
+	    True if successful, False otherwise
+	"""
+	try:
+		import tempfile
+		import tarfile
+		import uuid
+		import json
+		from utils.aws_utils import upload_to_s3
+		import pyzstd
+		
+		# Create temporary directory for this folder's backup
+		with tempfile.TemporaryDirectory() as temp_backup_dir:
+			# Extract only the files for this folder from the TAR
+			extracted_files = []
+			with tarfile.open(tar_path, 'r') as tar:
+				for obj in folder_objects:
+					relative_key = obj.get('relative_key', '')
+					tar_member_name = f'objects/{relative_key}'
+					
+					try:
+						member = tar.getmember(tar_member_name)
+						tar.extract(member, temp_backup_dir)
+						
+						# Add to extracted files list
+						extracted_path = os.path.join(temp_backup_dir, tar_member_name)
+						extracted_files.append({
+							'local_path': extracted_path,
+							'object_name': obj.get('object_name', ''),
+							'relative_key': relative_key
+						})
+					except KeyError:
+						logger.error(f'File not found in TAR: {tar_member_name}')
+						continue
+			
+			if not extracted_files:
+				logger.error(f'No files extracted for folder: {subfolder}')
+				return False
+			
+			# Create manifest for this folder
+			folder_manifest = {
+				'targets': backup_targets,
+				'objects': folder_objects
+			}
+			
+			manifest_path = os.path.join(temp_backup_dir, 'manifest.json')
+			with open(manifest_path, 'w') as f:
+				json.dump(folder_manifest, f, indent=2)
+			
+			# Create new TAR with extracted files + manifest
+			tar_backup_path = os.path.join(temp_backup_dir, 'backup.tar')
+			with tarfile.open(tar_backup_path, 'w') as backup_tar:
+				# Add manifest
+				backup_tar.add(manifest_path, arcname='manifest.json')
+				
+				# Add extracted files
+				for file_info in extracted_files:
+					local_path = file_info['local_path']
+					relative_key = file_info['relative_key']
+					if os.path.exists(local_path):
+						backup_tar.add(local_path, arcname=f'objects/{relative_key}')
+			
+			# Compress the TAR with zstd
+			compressed_path = os.path.join(temp_backup_dir, 'backup.tar.zst')
+			with open(tar_backup_path, 'rb') as tar_file:
+				with open(compressed_path, 'wb') as compressed_file:
+					option = {pyzstd.CParameter.compressionLevel: 3}
+					pyzstd.compress_stream(tar_file, compressed_file, level_or_option=option)
+			
+			# Generate backup filename and determine placement
+			backup_filename = f'{uuid.uuid4().hex}.tar.zst'
+			monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
+			
+			if monitored_prefix and subfolder:
+				target_key = f'{monitored_prefix}/{subfolder}/{backup_filename}'
+			elif monitored_prefix:
+				target_key = f'{monitored_prefix}/{backup_filename}'
+			elif subfolder:
+				target_key = f'{subfolder}/{backup_filename}'
+			else:
+				target_key = backup_filename
+			
+			# Upload to each backup target
+			success = True
+			for target in backup_targets:
+				target_bucket = target.get('bucket')
+				if not target_bucket:
+					logger.warning('Target missing bucket name for backup upload')
+					success = False
+					continue
+				
+				logger.info(f'Uploading folder backup to {target_bucket}/{target_key}')
+				if not upload_to_s3(compressed_path, target_bucket, target_key):
+					logger.error(f'Failed to upload backup to {target_bucket}/{target_key}')
+					success = False
+				else:
+					logger.info(f'Successfully uploaded backup to {target_bucket}/{target_key}')
+			
+			# Track manifest contents for backup file
+			track_backup_manifest(backup_filename, folder_manifest, backup_targets)
+			
+			return success
+			
+	except Exception as e:
+		logger.exception(f'Exception in create_folder_backup: {e}')
+		return False
+
+		success = True
+		for target in current_region_targets:
+			target_bucket = target.get('bucket')
+			if not target_bucket:
+				logger.warning('Target missing bucket name for backup upload')
+				success = False
+				continue
+
+			logger.info(f'Uploading compressed backup to {target_bucket}/{target_key}')
+			logger.info(f'Compressed file size: {os.path.getsize(compressed_file_path)} bytes')
+			
+			# Upload compressed file directly with preserved path structure
+			if not upload_to_s3(compressed_file_path, target_bucket, target_key):
+				logger.error(f'Failed to upload backup to {target_bucket}/{target_key}')
+				success = False
+			else:
+				logger.info(f'Successfully uploaded backup to {target_bucket}/{target_key} ({os.path.getsize(compressed_file_path)} bytes)')
+
+		# Track manifest contents for backup file
+		track_backup_manifest(backup_filename, manifest, current_region_targets)
+
+		return success
+	except Exception as e:
+		logger.exception(f'Exception in upload_compressed_backup: {e}')
+		return False
+
+
+def track_backup_manifest(backup_filename: str, manifest: Dict, targets: list) -> None:
+	"""
+	Track manifest contents for backup file - prepare data for future Kinesis/Glue integration.
+
+	Args:
+	    backup_filename: Name of the backup file
+	    manifest: Complete manifest dictionary
+	    targets: List of target buckets where backup was stored
+	"""
+	try:
+		# Add backup metadata to manifest
+		tracking_manifest = manifest.copy()
+		tracking_manifest['backup_file'] = backup_filename
+		tracking_manifest['backup_timestamp'] = int(time.time())
+		tracking_manifest['target_buckets'] = [t.get('bucket') for t in targets]
+
+		# Get source prefix from manifest for consistent path structure
+		objects = manifest.get('objects', [])
+		source_prefix = ''
+		if objects:
+			first_object = objects[0]
+			source_prefix = first_object.get('source_prefix', '')
+
+
+
+		# Write catalog metadata to S3
+		write_catalog_metadata(backup_filename, manifest, targets)
+		logger.info(f'Tracking {len(manifest.get("objects", []))} objects in backup {backup_filename}')
+
+	except Exception as e:
+		logger.exception(f'Error tracking backup manifest: {e}')
+
+
+def write_catalog_metadata(backup_filename: str, manifest: Dict, targets: list) -> None:
+	"""
+	Write backup file metadata to S3 catalog bucket in JSON format.
+	
+	Args:
+	    backup_filename: Name of the backup file
+	    manifest: Complete manifest dictionary
+	    targets: List of target buckets where backup was stored
+	"""
+	try:
+		catalog_bucket = os.environ.get('CATALOG_BUCKET_NAME')
+		if not catalog_bucket:
+			logger.warning('CATALOG_BUCKET_NAME not set, skipping catalog write')
+			return
+		
+		objects = manifest.get('objects', [])
+		backup_timestamp = int(time.time())
+		current_date = time.strftime('%Y-%m-%d', time.gmtime(backup_timestamp))
+		
+		# Get source info for path structure
+		if not objects:
+			return
+			
+		first_object = objects[0]
+		source_bucket = first_object.get('source_bucket', '')
+		source_prefix = first_object.get('source_prefix', '')
+		
+		# Create optimized catalog records (one record per object for better Athena performance)
+		catalog_records = []
+		for obj in objects:
+			# Parse creation time for better querying
+			creation_time = obj.get('creation_time', '')
+			creation_date = creation_time.split(' ')[0] if creation_time else current_date
+			
+			record = {
+				'backup_file': backup_filename,
+				'backup_timestamp': backup_timestamp,
+				'backup_date': current_date,
+				'source_bucket': source_bucket,
+				'source_prefix': source_prefix,
+				'object_name': obj.get('object_name', ''),
+				'object_path': f"{source_prefix}/{obj.get('relative_key', obj.get('object_name', ''))}" if source_prefix else obj.get('relative_key', obj.get('object_name', '')),
+				'object_size': obj.get('size', 0),
+				'creation_time': creation_time,
+				'creation_date': creation_date,
+				'target_buckets': [t.get('bucket') for t in targets]
+			}
+			catalog_records.append(record)
+		
+		# Create S3 key with year/month/day structure using monitored prefix only
+		# This ensures all files go into a single table regardless of subfolders
+		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
+		year, month, day = current_date.split('-')
+		if monitored_prefix:
+			s3_key = f'{source_bucket}/{monitored_prefix}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
+		else:
+			s3_key = f'{source_bucket}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
+		
+		# Write each record as a separate line (JSONL format for better Athena performance)
+		import tempfile, json
+		with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+			for record in catalog_records:
+				f.write(json.dumps(record) + '\n')
+			temp_path = f.name
+			
+
+		upload_to_s3(temp_path, catalog_bucket, s3_key)
+		os.unlink(temp_path)
+		
+		logger.info(f'Wrote catalog metadata: {len(catalog_records)} records to s3://{catalog_bucket}/{s3_key}')
+		
+	except Exception as e:
+		logger.exception(f'Error writing catalog metadata: {e}')
+
+
+@track_processing_time
 def upload_object_to_targets(object_info: Dict) -> bool:
 	"""
 	Upload an object to its target buckets.
@@ -181,15 +513,16 @@ def upload_object_to_targets(object_info: Dict) -> bool:
 					success = False
 					continue
 
-				# Construct target key
+				# Construct target key using relative_key to preserve full directory structure
 				object_name = object_info.get('object_name', '')
 				source_prefix = object_info.get('source_prefix', '')
+				relative_key = object_info.get('relative_key', object_name)
 
-				# Use source prefix if available, otherwise use the object name directly
+				# Use source prefix + relative key to maintain full path structure
 				if source_prefix:
-					target_key = f'{source_prefix}/{object_name}'
+					target_key = f'{source_prefix}/{relative_key}'
 				else:
-					target_key = object_name
+					target_key = relative_key
 
 				logger.debug(f'Uploading to {target_bucket}/{target_key}')
 
@@ -355,11 +688,78 @@ def process_message_batch(queue_url: str) -> int:
 				if not manifest:
 					logger.error('Failed to read manifest file')
 					continue
+				
+
+
+				# Check if any destination in current region has backup mode enabled
+				current_region = get_current_region()
+				targets = manifest.get('targets', [])
+				
+				backup_targets = [t for t in targets if t.get('region') == current_region and t.get('backup', False)]
+				normal_targets = [t for t in targets if t.get('region') == current_region and not t.get('backup', False)]
+
+				# Handle backup destinations - check if decompress/regroup is needed
+				if backup_targets:
+					logger.info(f'Backup mode: processing {len(manifest.get("objects", []))} objects for proper folder placement')
+					
+					# Check if all files are from the same subfolder
+				objects = manifest.get('objects', [])
+				subfolders = set()
+				for obj in objects:
+					relative_key = obj.get('relative_key', '')
+					subfolder = '/'.join(relative_key.split('/')[:-1]) if '/' in relative_key else ''
+					subfolders.add(subfolder)
+				
+				if len(subfolders) == 1:
+					# All files from same folder - use direct upload (no decompress/recompress)
+					subfolder = list(subfolders)[0]
+					logger.info(f'All files from same folder "{subfolder or "root"}": using direct upload (fast path)')
+					
+					# Create backup-specific manifest with only backup targets
+					backup_manifest = manifest.copy()
+					backup_manifest['targets'] = backup_targets
+					
+					if upload_compressed_backup_direct(local_path, backup_manifest, subfolder):
+						logger.info('Successfully uploaded backup archive directly')
+					else:
+						logger.error('Failed to upload backup archive directly')
+				else:
+					# Mixed folders - need to decompress and regroup
+					logger.info(f'Mixed folders detected ({len(subfolders)} folders): {list(subfolders)} - decompress/regroup needed (slow path)')
+					
+					# Group objects by their subfolder
+					from collections import defaultdict
+					objects_by_folder = defaultdict(list)
+					for obj in objects:
+						relative_key = obj.get('relative_key', '')
+						subfolder = '/'.join(relative_key.split('/')[:-1]) if '/' in relative_key else ''
+						objects_by_folder[subfolder].append(obj)
+					
+					# Process each folder group
+					for subfolder, folder_objects in objects_by_folder.items():
+						logger.info(f'Creating backup for folder "{subfolder or "root"}": {len(folder_objects)} files')
+						
+						# Create backup for this folder group
+						if create_folder_backup(tar_path, extract_dir, folder_objects, backup_targets, subfolder):
+							logger.info(f'Successfully created backup for folder: {subfolder or "root"}')
+						else:
+							logger.error(f'Failed to create backup for folder: {subfolder or "root"}')
+
+				# If all destinations are backup mode, skip decompression entirely
+				if not normal_targets:
+					logger.info('All destinations are backup mode - skipping decompression')
+					# Delete the compressed object from staging bucket
+					try:
+						if delete_s3_object(s3_source_info['bucket'], s3_source_info['key']):
+							logger.debug(f'Deleted compressed backup from staging: {s3_source_info["bucket"]}/{s3_source_info["key"]}')
+					except Exception as e:
+						logger.exception(f'Error deleting compressed backup: {e}')
+					continue
 
 				try:
 					# Log manifest structure for debugging
 					logger.debug(
-						f'Manifest structure: objects={len(manifest.get("objects", []))}, has_targets={("targets" in manifest)}'
+						f'Manifest structure: objects={len(manifest.get("objects", []))}, has_targets={("targets" in manifest)}, backup_targets={len(backup_targets)}, normal_targets={len(normal_targets)}'
 					)
 				except Exception as e:
 					logger.error(f'Error logging manifest structure: {e}')
@@ -368,6 +768,11 @@ def process_message_batch(queue_url: str) -> int:
 				tar_members = get_tar_members(tar_path)
 				object_members = [m for m in tar_members if m != 'manifest.json']
 				logger.debug(f'Found {len(object_members)} object files in TAR archive')
+
+				# Update manifest to only include normal (non-backup) targets for decompression
+				if normal_targets:
+					manifest['targets'] = normal_targets
+					logger.info(f'Processing decompression for {len(normal_targets)} normal destinations')
 
 				# Get mapping of object paths from manifest (but without the actual extracted files)
 				logger.debug('Getting object information from manifest')

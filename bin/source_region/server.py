@@ -266,7 +266,6 @@ def process_message_batch(queue_url: str, outbound_bucket: str, stack_name: str,
 
 			return len(messages)
 
-		# Create manifest file
 		manifest_path = os.path.join(temp_dir, 'manifest.json')
 		if not create_object_manifest(objects_metadata, targets, manifest_path):
 			logger.error('Failed to create manifest file')

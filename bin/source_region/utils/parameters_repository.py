@@ -115,6 +115,8 @@ class ParametersRepository:
 				destination['kms_key_arn'] = dest_map['kms_key_arn']['S']
 			if 'storage_class' in dest_map and 'S' in dest_map['storage_class']:
 				destination['storage_class'] = dest_map['storage_class']['S']
+			if 'backup' in dest_map and 'BOOL' in dest_map['backup']:
+				destination['backup'] = dest_map['backup']['BOOL']
 
 			result.append(destination)
 		return result

@@ -55,6 +55,7 @@ The system uses separate, independently scaling services for each source configu
 For detailed information about:
 - System architecture, data flow, and component details, see [ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Security features and best practices, see [SECURITY.md](docs/SECURITY.md)
+- Backup mode configuration and catalog querying, see [BACKUP_MODE.md](docs/BACKUP_MODE.md)
 
 ## Prerequisites
 
@@ -341,12 +342,14 @@ s3-cross-region-compressor/
 │   ├── source_service_stack.py
 │   └── resources/              # Resource constructs
 ├── docs/                       # Detailed documentation
+│   ├── images/                 # Architecture diagrams
 │   ├── ARCHITECTURE.md         # Overall system architecture
 │   ├── CONFIGURATION.md        # Configuration guide
 │   ├── DEPLOYMENT.md           # Deployment instructions
 │   ├── ADAPTIVE_COMPRESSION.md # Adaptive compression details
 │   ├── MONITORING.md           # Monitoring guidance
 │   ├── FARGATE_SCALING.md      # Service scaling strategy
+│   ├── BACKUP_MODE.md          # Backup mode configuration
 │   ├── SECURITY.md             # Security guardrails
 │   ├── source_region/          # Source application documentation
 │   │   └── README.md           # Source region service details

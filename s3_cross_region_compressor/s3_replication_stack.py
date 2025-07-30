@@ -152,7 +152,7 @@ class S3ReplicationStack(Stack):
 							'Rules': rules,
 						},
 					},
-					physical_resource_id=cr.PhysicalResourceId.of('create-replication-policy'),
+					physical_resource_id=cr.PhysicalResourceId.of('create-replication-policy-v2'),
 				),
 				on_update=cr.AwsSdkCall(
 					service='S3',
@@ -164,7 +164,7 @@ class S3ReplicationStack(Stack):
 							'Rules': rules,
 						},
 					},
-					physical_resource_id=cr.PhysicalResourceId.of('update-replication-policy'),
+					physical_resource_id=cr.PhysicalResourceId.of('update-replication-policy-v2'),
 				),
 			)
 		NagSuppressions.add_resource_suppressions(

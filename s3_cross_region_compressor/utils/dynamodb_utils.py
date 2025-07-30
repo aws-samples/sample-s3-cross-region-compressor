@@ -120,6 +120,10 @@ def destinations_to_dynamodb_format(destinations):
 		if 'storage_class' in dest:
 			dest_item['M']['storage_class'] = {'S': dest['storage_class']}
 
+		# Add backup flag
+		if 'backup' in dest:
+			dest_item['M']['backup'] = {'BOOL': dest['backup']}
+
 		result.append(dest_item)
 
 	return result

@@ -228,6 +228,7 @@ Each entry in the `destinations` array configures a specific target bucket:
 | `bucket` | String | Yes | S3 bucket name to store decompressed objects |
 | `kms_key_arn` | String | No | KMS key ARN for encryption in target region (can be omitted or left empty if not using KMS) |
 | `storage_class` | String | No | S3 storage class for target objects (Only: "INTELLIGENT_TIERING", "STANDARD", "STANDARD_IA", "GLACIER_IR", "ONEZONE_IA", "GLACIER" and "DEEP_ARCHIVE") - if omitted, the original storage class from the source object will be used |
+| `backup` | Boolean | No | Set to `true` to enable backup mode for this destination (stores compressed archives instead of individual files, default: `false`) - see [BACKUP_MODE.md](BACKUP_MODE.md) for details |
 
 ### Example Configurations
 
@@ -387,6 +388,41 @@ Each entry in the `destinations` array configures a specific target bucket:
     ]
 }
 ```
+
+#### Backup Mode Configuration
+
+```json
+{
+    "replication_configuration": [
+        {
+            "source": {
+                "region": "us-west-2",
+                "bucket": "source-bucket",
+                "prefix_filter": "documents/"
+            },
+            "destinations": [
+                {
+                    "region": "eu-central-1",
+                    "bucket": "backup-archive-bucket",
+                    "storage_class": "GLACIER_IR",
+                    "backup": true
+                },
+                {
+                    "region": "ca-central-1",
+                    "bucket": "active-files-bucket",
+                    "storage_class": "STANDARD"
+                }
+            ]
+        }
+    ]
+}
+```
+
+In this example:
+- **eu-central-1**: Receives compressed archives (backup mode) for cost-effective archival
+- **ca-central-1**: Receives individual decompressed files for immediate access
+
+For complete backup mode documentation, see [BACKUP_MODE.md](BACKUP_MODE.md).
 
 #### Configuration with Omitted Optional Parameters
 

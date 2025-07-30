@@ -72,6 +72,9 @@ def create_task_definition(
 	data_transfer_cost: str = '0.03',
 	fargate_cost_per_minute: str = '0.00072',
 	monitored_prefix: str = None,
+	backup_mode: bool = False,
+	catalog_bucket_name: str = '',
+
 ) -> ecs.TaskDefinition:
 	"""
 	Create an ECS task definition for the S3 Cross-Region Compressor.
@@ -113,6 +116,11 @@ def create_task_definition(
 	}
 	if monitored_prefix:
 		variables['MONITORED_PREFIX'] = monitored_prefix
+	if backup_mode:
+		variables['BACKUP_MODE'] = 'true'
+	if catalog_bucket_name:
+		variables['CATALOG_BUCKET_NAME'] = catalog_bucket_name
+
 
 	task_def_props = {
 		'compatibility': ecs.Compatibility.FARGATE,
