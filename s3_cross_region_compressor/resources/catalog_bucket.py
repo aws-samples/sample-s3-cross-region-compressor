@@ -30,8 +30,8 @@ def create_catalog_bucket(scope: Construct, kms_key: kms.Key, stack_name: str) -
         encryption=s3.BucketEncryption.KMS,
         encryption_key=kms_key,
         versioned=False,
-        removal_policy=RemovalPolicy.DESTROY,
-        auto_delete_objects=True,
+        removal_policy=RemovalPolicy.RETAIN,
+        auto_delete_objects=False,
         enforce_ssl=True,  # Require SSL
         server_access_logs_bucket=None,  # Disable access logs for catalog bucket
     )

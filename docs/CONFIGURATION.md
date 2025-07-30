@@ -424,6 +424,8 @@ In this example:
 
 For complete backup mode documentation, see [BACKUP_MODE.md](BACKUP_MODE.md).
 
+**Important**: When backup mode is enabled, the system creates a catalog bucket for metadata storage. This bucket retains metadata files indefinitely and will persist even if the CDK stack is destroyed, ensuring backup metadata is preserved for compliance and recovery purposes.
+
 #### Configuration with Omitted Optional Parameters
 
 ```json

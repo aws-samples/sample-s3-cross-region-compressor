@@ -315,7 +315,7 @@ The system provides specific metrics for backup mode:
 
 The system automatically configures lifecycle policies:
 
-- **Catalog Bucket**: Metadata files retained for 1 year
+- **Catalog Bucket**: Metadata files retained indefinitely, bucket persists even if CDK stack is destroyed
 - **Query Results**: Athena query results retained for 30 days
 
 ### Troubleshooting
