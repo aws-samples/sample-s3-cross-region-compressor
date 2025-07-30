@@ -83,6 +83,7 @@ def add_source_s3_read_permissions(role: iam.Role, bucket_name: str, kms_key_arn
 				's3:GetObject',
 				's3:GetObjectVersion',
 				's3:GetObjectAttributes',
+				's3:GetObjectTagging',
 				's3:ListBucket',
 			],
 			resources=[f'arn:aws:s3:::{bucket_name}/*'],
