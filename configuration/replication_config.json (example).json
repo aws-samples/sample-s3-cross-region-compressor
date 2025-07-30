@@ -25,7 +25,8 @@
                     "region": "eu-central-1",
                     "bucket": "example-target-bucket-eu",
                     "storage_class": "GLACIER_IR",
-                    "kms_key_arn": "arn:aws:kms:eu-central-1:111122223333:key/efgh5678-ef56-gh78-ij90-efghij456789"
+                    "kms_key_arn": "arn:aws:kms:eu-central-1:111122223333:key/efgh5678-ef56-gh78-ij90-efghij456789",
+                    "backup": true
                 }
             ]
         },
