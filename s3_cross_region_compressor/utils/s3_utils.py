@@ -29,7 +29,9 @@ def build_notification_filter(prefix: str, suffix: str) -> Optional[s3.Notificat
 
 	filter_args = {}
 	if prefix:
-		filter_args['prefix'] = prefix
+		# Ensure prefix ends with '/' for proper S3 notification filtering
+		normalized_prefix = prefix if prefix.endswith('/') else f"{prefix}/"
+		filter_args['prefix'] = normalized_prefix
 	if suffix:
 		filter_args['suffix'] = suffix
 

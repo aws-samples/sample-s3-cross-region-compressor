@@ -155,12 +155,17 @@ def upload_compressed_backup_direct(local_path: str, manifest: dict, subfolder: 
 		backup_filename = f'{uuid.uuid4().hex}.tar.zst'
 		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
 		
+		# Normalize paths to avoid double slashes
 		if monitored_prefix and subfolder:
-			target_key = f'{monitored_prefix}/{subfolder}/{backup_filename}'
+			normalized_prefix = monitored_prefix.rstrip('/')
+			normalized_subfolder = subfolder.strip('/')
+			target_key = f'{normalized_prefix}/{normalized_subfolder}/{backup_filename}'
 		elif monitored_prefix:
-			target_key = f'{monitored_prefix}/{backup_filename}'
+			normalized_prefix = monitored_prefix.rstrip('/')
+			target_key = f'{normalized_prefix}/{backup_filename}'
 		elif subfolder:
-			target_key = f'{subfolder}/{backup_filename}'
+			normalized_subfolder = subfolder.strip('/')
+			target_key = f'{normalized_subfolder}/{backup_filename}'
 		else:
 			target_key = backup_filename
 		
@@ -274,12 +279,17 @@ def create_folder_backup(tar_path: str, extract_dir: str, folder_objects: list, 
 			backup_filename = f'{uuid.uuid4().hex}.tar.zst'
 			monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
 			
+			# Normalize paths to avoid double slashes
 			if monitored_prefix and subfolder:
-				target_key = f'{monitored_prefix}/{subfolder}/{backup_filename}'
+				normalized_prefix = monitored_prefix.rstrip('/')
+				normalized_subfolder = subfolder.strip('/')
+				target_key = f'{normalized_prefix}/{normalized_subfolder}/{backup_filename}'
 			elif monitored_prefix:
-				target_key = f'{monitored_prefix}/{backup_filename}'
+				normalized_prefix = monitored_prefix.rstrip('/')
+				target_key = f'{normalized_prefix}/{backup_filename}'
 			elif subfolder:
-				target_key = f'{subfolder}/{backup_filename}'
+				normalized_subfolder = subfolder.strip('/')
+				target_key = f'{normalized_subfolder}/{backup_filename}'
 			else:
 				target_key = backup_filename
 			
@@ -360,9 +370,13 @@ def track_backup_manifest(backup_filename: str, manifest: Dict, targets: list) -
 
 
 
-		# Write catalog metadata to S3
-		write_catalog_metadata(backup_filename, manifest, targets)
-		logger.info(f'Tracking {len(manifest.get("objects", []))} objects in backup {backup_filename}')
+		# Write catalog metadata to S3 only for backup targets
+		backup_only_targets = [t for t in targets if t.get('backup', False)]
+		if backup_only_targets:
+			write_catalog_metadata(backup_filename, manifest, backup_only_targets)
+			logger.info(f'Tracking {len(manifest.get("objects", []))} objects in backup {backup_filename}')
+		else:
+			logger.debug(f'No backup targets found, skipping catalog metadata for {backup_filename}')
 
 	except Exception as e:
 		logger.exception(f'Error tracking backup manifest: {e}')
@@ -422,7 +436,9 @@ def write_catalog_metadata(backup_filename: str, manifest: Dict, targets: list) 
 		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
 		year, month, day = current_date.split('-')
 		if monitored_prefix:
-			s3_key = f'{source_bucket}/{monitored_prefix}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
+			# Normalize path to avoid double slashes
+			normalized_prefix = monitored_prefix.rstrip('/')
+			s3_key = f'{source_bucket}/{normalized_prefix}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
 		else:
 			s3_key = f'{source_bucket}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
 		
@@ -517,7 +533,10 @@ def upload_object_to_targets(object_info: Dict) -> bool:
 
 				# Use source prefix + relative key to maintain full path structure
 				if source_prefix:
-					target_key = f'{source_prefix}/{relative_key}'
+					# Normalize paths to avoid double slashes
+					normalized_prefix = source_prefix.rstrip('/')
+					normalized_relative = relative_key.lstrip('/')
+					target_key = f'{normalized_prefix}/{normalized_relative}'
 				else:
 					target_key = relative_key
 

@@ -298,8 +298,10 @@ def process_message_batch(queue_url: str, outbound_bucket: str, stack_name: str,
 		# Use monitored prefix for upload if available, otherwise use source_prefix
 		# This ensures all objects get compressed together but are uploaded to correct path
 		if monitored_prefix:
-			s3_key = f'{source_bucket}/{monitored_prefix}/{uuid.uuid4().hex}.tar.zst'
-			logger.info(f'Using monitored prefix for upload path: {monitored_prefix}')
+			# Normalize path to avoid double slashes
+			normalized_prefix = monitored_prefix.rstrip('/')
+			s3_key = f'{source_bucket}/{normalized_prefix}/{uuid.uuid4().hex}.tar.zst'
+			logger.info(f'Using monitored prefix for upload path: {normalized_prefix}')
 		elif not source_prefix:
 			s3_key = f'{source_bucket}/{uuid.uuid4().hex}.tar.zst'
 		else:
