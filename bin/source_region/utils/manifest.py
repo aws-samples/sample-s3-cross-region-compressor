@@ -40,6 +40,7 @@ def add_object_to_manifest(manifest: Dict, object_metadata: Dict, targets: List[
 	# Create object entry
 	object_entry = {
 		'source_bucket': object_metadata.get('source_bucket', ''),
+		'source_region': object_metadata.get('source_region', ''),
 		'source_prefix': object_metadata.get('source_prefix', ''),
 		'object_name': object_metadata.get('object_name', ''),
 		# Add relative_key for preserving directory structure and avoiding name collisions

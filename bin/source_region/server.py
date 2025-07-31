@@ -142,6 +142,9 @@ def process_s3_object(s3_object: Dict, temp_dir: str, monitored_prefix: str = ''
 
 		# Add full key to metadata
 		metadata['full_key'] = key
+		
+		# Add source region to metadata
+		metadata['source_region'] = os.environ.get('AWS_DEFAULT_REGION', '')
 
 		# Calculate relative path from monitored prefix
 		if monitored_prefix and key.startswith(monitored_prefix):
