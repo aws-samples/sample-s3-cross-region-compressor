@@ -32,6 +32,8 @@ from s3_cross_region_compressor.source_service_stack import (
 
 from s3_cross_region_compressor.resources.cost_estimator import create_lambda
 from s3_cross_region_compressor.resources.dashboard import create_compression_dashboard
+from s3_cross_region_compressor.resources.lambda_functions import create_migration_lambda
+from s3_cross_region_compressor.resources.step_functions import create_migration_state_machine
 
 
 class SourceStackProps:
@@ -191,12 +193,20 @@ class SourceStack(NestedStack):
 
 		cost_estimator_lambda = create_lambda(self)
 
+		migration_lambda = create_migration_lambda(self, props.stack_name, self.replication_parameters_table.table_name)
+		migration_sfn = create_migration_state_machine(self, migration_lambda)
+
 		# Create CloudWatch Dashboard to visualize compression metrics
 		self.compression_dashboard = create_compression_dashboard(scope=self, stack_name=props.stack_name)
 
 		for config_id, config in enumerate(props.replication_config):
 			if config['source']['region'] == self.region:
-				source = f'{config["source"]["bucket"]}-{config["source"].get("prefix_filter", "")}'
+				prefix_filter = config["source"].get("prefix_filter", "")
+				if prefix_filter:
+					source = f'{config["source"]["bucket"]}-{prefix_filter}'
+				else:
+					source = config["source"]["bucket"]
+
 				SourceServiceStack(
 					scope=self,
 					construct_id=f'SourceService-{source}',
