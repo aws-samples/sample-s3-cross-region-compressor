@@ -153,15 +153,21 @@ def upload_compressed_backup_direct(local_path: str, manifest: dict, subfolder: 
 		
 		# Generate backup filename and determine placement
 		backup_filename = f'{uuid.uuid4().hex}.tar.zst'
-		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
+		
+		# Get the actual source prefix from manifest instead of environment variable
+		objects = manifest.get('objects', [])
+		if objects:
+			source_prefix = objects[0].get('source_prefix', '')
+		else:
+			source_prefix = ''
 		
 		# Normalize paths to avoid double slashes
-		if monitored_prefix and subfolder:
-			normalized_prefix = monitored_prefix.rstrip('/')
+		if source_prefix and subfolder:
+			normalized_prefix = source_prefix.rstrip('/')
 			normalized_subfolder = subfolder.strip('/')
 			target_key = f'{normalized_prefix}/{normalized_subfolder}/{backup_filename}'
-		elif monitored_prefix:
-			normalized_prefix = monitored_prefix.rstrip('/')
+		elif source_prefix:
+			normalized_prefix = source_prefix.rstrip('/')
 			target_key = f'{normalized_prefix}/{backup_filename}'
 		elif subfolder:
 			normalized_subfolder = subfolder.strip('/')
