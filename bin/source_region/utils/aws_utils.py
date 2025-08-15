@@ -225,13 +225,10 @@ def get_s3_object_metadata(bucket: str, key: str) -> Dict:
 	try:
 		response = s3_client.head_object(Bucket=bucket, Key=key)
 
-		# Use monitored prefix to maintain consistent folder structure
+		# Use monitored prefix - for buckets without prefix filter, this should be empty
 		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
-		if monitored_prefix:
-			prefix = monitored_prefix
-		else:
-			# Fallback to extracting prefix from key if no monitored prefix
-			prefix = '/'.join(key.split('/')[:-1]) if '/' in key else ''
+		# Always use monitored_prefix as source_prefix (empty for buckets without prefix filter)
+		prefix = monitored_prefix
 
 		metadata = {
 			'source_bucket': bucket,

@@ -95,8 +95,8 @@ def process_s3_object(s3_object: Dict, temp_dir: str) -> Tuple[bool, str, Dict]:
 	try:
 		bucket = s3_object['bucket']
 		key = s3_object['key']
-		# Generate a unique filename
-		filename = f'{uuid.uuid4().hex}_{os.path.basename(key)}'
+		# Use original filename - source already ensures uniqueness with UUIDs
+		filename = os.path.basename(key)
 		local_path = os.path.join(temp_dir, filename)
 
 		# Download the object
@@ -151,8 +151,8 @@ def upload_compressed_backup_direct(local_path: str, manifest: dict, subfolder: 
 		import uuid
 		from utils.aws_utils import upload_to_s3
 		
-		# Generate backup filename and determine placement
-		backup_filename = f'{uuid.uuid4().hex}.tar.zst'
+		# Use original filename from S3 key - source already generates unique UUIDs
+		backup_filename = os.path.basename(local_path)
 		
 		# Get the actual source prefix from manifest instead of environment variable
 		objects = manifest.get('objects', [])
@@ -290,11 +290,10 @@ def write_catalog_metadata(backup_filename: str, manifest: Dict, targets: list) 
 		# Create S3 key with region/bucket/prefix/year/month/day structure
 		# Get source region from first object
 		source_region = first_object.get('source_region', 'unknown')
-		monitored_prefix = os.environ.get('MONITORED_PREFIX', '')
 		year, month, day = current_date.split('-')
-		if monitored_prefix:
+		if source_prefix:
 			# Normalize path to avoid double slashes
-			normalized_prefix = monitored_prefix.rstrip('/')
+			normalized_prefix = source_prefix.rstrip('/')
 			s3_key = f'{source_region}/{source_bucket}/{normalized_prefix}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
 		else:
 			s3_key = f'{source_region}/{source_bucket}/year={year}/month={month}/day={day}/{backup_filename}.jsonl'
@@ -388,13 +387,15 @@ def upload_object_to_targets(object_info: Dict) -> bool:
 				source_prefix = object_info.get('source_prefix', '')
 				relative_key = object_info.get('relative_key', object_name)
 
-				# Use source prefix + relative key to maintain full path structure
+				# For buckets with prefix filters, relative_key is relative to the prefix
+				# For buckets without prefix filters, relative_key is the full path
 				if source_prefix:
-					# Normalize paths to avoid double slashes
+					# Bucket has prefix filter - combine prefix + relative key
 					normalized_prefix = source_prefix.rstrip('/')
 					normalized_relative = relative_key.lstrip('/')
 					target_key = f'{normalized_prefix}/{normalized_relative}'
 				else:
+					# Bucket has no prefix filter - relative_key is already the full path
 					target_key = relative_key
 
 				logger.debug(f'Uploading to {target_bucket}/{target_key}')

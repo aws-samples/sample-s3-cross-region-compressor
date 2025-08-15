@@ -199,7 +199,7 @@ def create_high_backlog_per_task_alarm(
 		scope,
 		'HighBacklogPerTaskAlarm',
 		alarm_name=f'{id}-HighBacklogPerTaskAlarm',
-		comparison_operator=cw.ComparisonOperator.GREATER_THAN_THRESHOLD,
+		comparison_operator=cw.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
 		threshold=scaling_target_backlog_per_task,
 		evaluation_periods=1,
 		metric=backlog_per_task,
